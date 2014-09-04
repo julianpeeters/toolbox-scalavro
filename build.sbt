@@ -27,7 +27,16 @@ organization in ThisBuild := Common.ORGANIZATION
 
 scalaVersion in ThisBuild := Common.SCALA_VERSION
 
+resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots"
+
+resolvers += "spray" at "http://repo.spray.io/"
+
+resolvers += Resolver.file("Local Ivy Repository", file("/home/julianpeeters/.ivy2/local/"))(Resolver.ivyStylePatterns)
+
+resolvers += Resolver.sonatypeRepo("releases")
+
 libraryDependencies in ThisBuild ++= Seq(
+      "org.scala-lang" % "scala-compiler" % Common.SCALA_VERSION,
       "org.scala-lang" % "scala-reflect" % Common.SCALA_VERSION,
       "org.slf4j" % "slf4j-api" % Common.SLF4J_VERSION,
       "ch.qos.logback" % "logback-classic" % Common.LOGBACK_VERSION % "runtime",

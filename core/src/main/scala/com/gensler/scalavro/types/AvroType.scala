@@ -241,6 +241,7 @@ object AvroType extends Logging {
     * or throws an exception.
     */
   def apply[T: TypeTag]: AvroType[T] = fromType[T].get
+  def apply[T: TypeTag](tb: scala.tools.reflect.ToolBox[reflect.runtime.universe.type], symbol: scala.reflect.runtime.universe.Symbol): AvroType[T] = fromType[T](tb, symbol).get
 
   protected[types] def cyclicTypeDependencyException[T: TypeTag] {
     throw new CyclicTypeDependencyException(
@@ -254,6 +255,7 @@ object AvroType extends Logging {
     * for the supplied type.
     */
   def fromType[T](implicit typeTag: TypeTag[T]): Try[AvroType[T]] = fromTypeHelper(typeTag)
+  def fromType[T](tb: scala.tools.reflect.ToolBox[reflect.runtime.universe.type], csym: scala.reflect.runtime.universe.Symbol)(implicit typeTag: TypeTag[T]): Try[AvroType[T]] = fromSymbolHelper(typeTag, tb, csym)
 
   private[scalavro] def fromTypeHelper[T](
     implicit tt: TypeTag[T],
@@ -298,15 +300,104 @@ object AvroType extends Logging {
             AvroFixed.fromType(processedTypes)(tt.asInstanceOf[TypeTag[FixedData]])
 
           // case classes
-          else if (tpe <:< typeOf[Product] && tpe.typeSymbol.asClass.isCaseClass)
-            AvroRecord.fromType(processedTypes)(tt.asInstanceOf[TypeTag[Product]])
-
+          //      else if (tpe <:< typeOf[Product] && tpe.typeSymbol.asClass.isCaseClass) {
+          //      println(tpe.map(_.dealias));
+          //    AvroRecord.fromType(processedTypes)(tt.asInstanceOf[TypeTag[Product]])
+          //   }
+          /*
           // unions
           else if (tpe <:< typeOf[Either[_, _]] ||
             tpe <:< typeOf[Option[_]] ||
             tpe <:< typeOf[Union.not[_]] ||
             tpe <:< typeOf[Union[_]] ||
             tpe.typeSymbol.isClass) AvroUnion.fromType(processedTypes)(tt)
+*/
+          // type aliases
+          //else if (tpe.map(_.dealias) <:< typeOf[Product] && tpe.typeSymbol.asClass.isCaseClass) {
+          else if (true) {
+
+            AvroRecord.fromType(processedTypes)(tt.asInstanceOf[TypeTag[Product]])
+            // AvroRecord.fromSymbol(processedTypes, csym)(tt.asInstanceOf[TypeTag[Product]])
+          }
+
+          else throw new IllegalArgumentException(
+            "Unable to find or make an AvroType for the supplied type [%s]" format tpe
+          )
+        }
+
+        // add the synthesized AvroType to the complex type cache table
+        Cache.save(tpe, newComplexType)
+
+        newComplexType
+      }
+    }
+
+    avroType.asInstanceOf[AvroType[T]]
+  }
+
+  private[scalavro] def fromSymbolHelper[T](
+    implicit tt: TypeTag[T],
+    tb: scala.tools.reflect.ToolBox[reflect.runtime.universe.type],
+    csym: scala.reflect.runtime.universe.Symbol,
+    processedTypes: Set[Type] = Set[Type]()): Try[AvroType[T]] = Try {
+
+    // if (processedTypes exists { _ =:= tt.tpe }) cyclicTypeDependencyException[T]
+
+    val tpe = csym.asType.toType
+
+    val avroType = Cache.resolve(tpe) match {
+
+      // complex type cache hit
+      case Some(cachedAvroType) => cachedAvroType
+
+      // cache miss
+      case None => {
+
+        val newComplexType = {
+          /*
+          // sets
+          if (tpe <:< typeOf[Set[_]])
+            AvroSet.fromType(processedTypes)(tt.asInstanceOf[TypeTag[Set[_]]])
+
+          // string-keyed maps
+          else if (tpe <:< typeOf[Map[String, _]])
+            AvroMap.fromType(processedTypes)(tt.asInstanceOf[TypeTag[Map[String, _]]])
+
+          // sequences and arrays
+          else if (tpe <:< typeOf[Seq[_]] ||
+            tpe <:< typeOf[Array[_]]) AvroArray.fromType(processedTypes)(tt.asInstanceOf[TypeTag[_]])
+
+          // Scala enumerations
+          else if (tpe.baseClasses.head.owner == typeOf[Enumeration].typeSymbol)
+            AvroEnum.fromType(processedTypes)(tt.asInstanceOf[TypeTag[Enumeration]])
+
+          // Java enums
+          else if (ReflectionHelpers.classLoaderMirror.runtimeClass(tpe.typeSymbol.asClass).isEnum)
+            AvroJEnum.fromType(processedTypes)(tt)
+
+          // fixed-length data
+          else if (tpe <:< typeOf[FixedData])
+            AvroFixed.fromType(processedTypes)(tt.asInstanceOf[TypeTag[FixedData]])
+*/
+          // case classes
+          //      else if (tpe <:< typeOf[Product] && tpe.typeSymbol.asClass.isCaseClass) {
+          //      println(tpe.map(_.dealias));
+          //    AvroRecord.fromType(processedTypes)(tt.asInstanceOf[TypeTag[Product]])
+          //   }
+          /*
+          // unions
+          else if (tpe <:< typeOf[Either[_, _]] ||
+            tpe <:< typeOf[Option[_]] ||
+            tpe <:< typeOf[Union.not[_]] ||
+            tpe <:< typeOf[Union[_]] ||
+            tpe.typeSymbol.isClass) AvroUnion.fromType(processedTypes)(tt)
+*/
+          // type aliases
+          //else if (tpe.map(_.dealias) <:< typeOf[Product] && tpe.typeSymbol.asClass.isCaseClass) {
+          if (true) {
+            // AvroRecord.fromType(processedTypes)(tt.asInstanceOf[TypeTag[Product]])
+            AvroRecord.fromSymbol(processedTypes, tb, csym)(tt.asInstanceOf[TypeTag[Product]])
+          }
 
           else throw new IllegalArgumentException(
             "Unable to find or make an AvroType for the supplied type [%s]" format tpe

@@ -11,7 +11,7 @@ import scala.collection.mutable
 import scala.reflect.runtime.universe.TypeTag
 
 /**
-  * Represents a mapping from a Scala type (a case class subclass of
+  * name * Represents a mapping from a Scala type (a case class subclass of
   * scala.Product) to a corresponding Avro type.
   */
 class AvroRecord[T: TypeTag](
@@ -63,7 +63,8 @@ object AvroRecord {
     val tt = typeTag[T]
     val classSymbol = tt.tpe.typeSymbol.asClass
     if (classSymbol.isCaseClass && classSymbol.typeParams.isEmpty) {
-      tt.tpe match {
+
+      tt.tpe.map(_.dealias) match {
         case TypeRef(prefix, symbol, _) =>
 
           val defaultValues = ReflectionHelpers.defaultCaseClassValues[T]
@@ -74,6 +75,49 @@ object AvroRecord {
               case (name, tag) => AvroRecord.Field(name, defaultValues(name))(tag.asInstanceOf[TypeTag[Any]])
             },
             namespace = Some(prefix.toString stripSuffix ".type")
+          ).asInstanceOf[AvroType[T]]
+        /*
+        case x =>
+
+          val defaultValues = ReflectionHelpers.defaultCaseClassValues[T]
+
+          new AvroRecord[T](
+            //            name = symbol.name.toString,
+            name = "NN",
+            fields = ReflectionHelpers.caseClassParamsOf[T].toSeq map {
+              case (name, tag) => AvroRecord.Field(name, defaultValues(name))(tag.asInstanceOf[TypeTag[Any]])
+            },
+            //            namespace = Some(prefix.toString stripSuffix ".type")
+            namespace = Some("MM")
+          ).asInstanceOf[AvroType[T]]
+*/
+      }
+    }
+    else throw new IllegalArgumentException("""
+      |Could not create an AvroRecord from type [%s]
+      |Product types must be case classes with no type parameters
+    """.format(tt.tpe).stripMargin)
+  }
+
+  private[types] def fromSymbol[T <: Product: TypeTag](processedTypes: Set[Type], tb: scala.tools.reflect.ToolBox[reflect.runtime.universe.type], csym: scala.reflect.runtime.universe.Symbol) = {
+    val tt = typeTag[T]
+    val classSymbol = tt.tpe.typeSymbol.asClass
+    //    if (classSymbol.isCaseClass && classSymbol.typeParams.isEmpty) {
+    if (true) {
+
+      tt.tpe.map(_.dealias) match {
+        case x =>
+
+          val defaultValues = ReflectionHelpers.defaultCaseClassValues[T](tb, csym)
+
+          new AvroRecord[T](
+            // name = symbol.name.toString,
+            name = csym.name.toString,
+            fields = ReflectionHelpers.caseClassParamsOf[T](csym).toSeq map {
+              case (name, tag) => AvroRecord.Field(name, defaultValues(name))(tag.asInstanceOf[TypeTag[Any]])
+            },
+            // namespace = Some(prefix.toString stripSuffix ".type")
+            namespace = Some(csym.owner.name.toString)
           ).asInstanceOf[AvroType[T]]
       }
     }

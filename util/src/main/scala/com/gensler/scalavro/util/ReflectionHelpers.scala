@@ -161,7 +161,28 @@ trait ReflectionHelpers extends Logging {
         val ctors = constructorSymbol.asTerm.alternatives
         ctors.map { _.asMethod }.find { _.isPrimaryConstructor }.get
       }
+    ListMap[String, TypeTag[_]]() ++ defaultConstructor.paramLists.reduceLeft(_ ++ _).map {
+      sym => sym.name.toString -> tagForType(tpe.member(sym.name).asMethod.returnType)
+    }
+  }
 
+  /**
+    * Returns a map from formal parameter names to type tags, containing one
+    * mapping for each constructor argument.  The resulting map (a ListMap)
+    * preserves the order of the primary constructor's parameter list.
+    *
+    * @tparam T  the type of the case class to inspect
+    */
+  def caseClassParamsOf[T: TypeTag](csym: scala.reflect.runtime.universe.Symbol): ListMap[String, TypeTag[_]] = {
+    val tpe = csym.asType.toType
+    //    val constructorSymbol = tpe.decl(termNames.CONSTRUCTOR)
+    val constructorSymbol = csym.asType.toType.decl(termNames.CONSTRUCTOR)
+    val defaultConstructor =
+      if (constructorSymbol.isMethod) constructorSymbol.asMethod
+      else {
+        val ctors = constructorSymbol.asTerm.alternatives
+        ctors.map { _.asMethod }.find { _.isPrimaryConstructor }.get
+      }
     ListMap[String, TypeTag[_]]() ++ defaultConstructor.paramLists.reduceLeft(_ ++ _).map {
       sym => sym.name.toString -> tagForType(tpe.member(sym.name).asMethod.returnType)
     }
@@ -177,7 +198,33 @@ trait ReflectionHelpers extends Logging {
     * @param parameter  the name of the parameter to find a default value for
     */
   def defaultCaseClassValues[T: TypeTag]: Map[String, Option[Any]] = {
+
     val companion = CompanionMetadata[T].get
+
+    val applySymbol: MethodSymbol = {
+      val symbol = companion.classType.member(TermName("apply"))
+      if (symbol.isMethod) symbol.asMethod
+      else symbol.asTerm.alternatives.head.asMethod // symbol.isTerm
+    }
+
+    def valueFor(i: Int): Option[Any] = {
+      val defaultValueThunkName = TermName(s"apply$$default$$${i + 1}")
+      val defaultValueThunkSymbol = companion.classType member defaultValueThunkName
+
+      if (defaultValueThunkSymbol == NoSymbol) None
+      else {
+        val defaultValueThunk = companion.instanceMirror reflectMethod defaultValueThunkSymbol.asMethod
+        Some(defaultValueThunk.apply())
+      }
+    }
+
+    applySymbol.paramLists.flatten.zipWithIndex.map { case (p, i) => p.name.toString -> valueFor(i) }.toMap
+  }
+
+  def defaultCaseClassValues[T: TypeTag](tb: scala.tools.reflect.ToolBox[reflect.runtime.universe.type], csym: scala.reflect.runtime.universe.Symbol): Map[String, Option[Any]] = {
+
+    val companion = CompanionMetadata[T](tb, csym).get
+    //   val companion = CompanionMetadata[T](csym).get
 
     val applySymbol: MethodSymbol = {
       val symbol = companion.classType.member(TermName("apply"))
@@ -316,9 +363,31 @@ trait ReflectionHelpers extends Logging {
           else Some(classSymbol.companion.asModule)
         }
       }
-
       companion.map { symbol =>
+
         val instance = classLoaderMirror.reflectModule(symbol).instance
+        val instanceMirror = classLoaderMirror reflect instance
+        val classType = symbol.moduleClass.asClass.asType.toType
+        CompanionMetadata(symbol, instance, instanceMirror, classType)
+      }
+    }
+
+    def apply[T: TypeTag](tb: scala.tools.reflect.ToolBox[reflect.runtime.universe.type], csym: scala.reflect.runtime.universe.Symbol): Option[CompanionMetadata[T]] = {
+
+      val typeSymbol = csym.asType
+
+      val companion: Option[ModuleSymbol] = {
+        if (!typeSymbol.isClass) None // supplied type is not a class
+        else {
+          val classSymbol = typeSymbol.asClass
+          if (!classSymbol.companion.isModule) None // supplied class type has no companion
+          else Some(classSymbol.companion.asModule)
+        }
+      }
+      companion.map { symbol =>
+
+        val loader = (tb.asInstanceOf[scala.tools.reflect.ToolBoxFactory$ToolBoxImpl].classLoader)
+        val instance = runtimeMirror(loader).reflectModule(symbol).instance //classLoaderMirror.reflectModule(symbol).instance
         val instanceMirror = classLoaderMirror reflect instance
         val classType = symbol.moduleClass.asClass.asType.toType
         CompanionMetadata(symbol, instance, instanceMirror, classType)
