@@ -36,6 +36,7 @@ resolvers += Resolver.file("Local Ivy Repository", file("/home/julianpeeters/.iv
 resolvers += Resolver.sonatypeRepo("releases")
 
 libraryDependencies in ThisBuild ++= Seq(
+      "com.novus" %% "salat" % "1.9.8",
       "org.scala-lang" % "scala-compiler" % Common.SCALA_VERSION,
       "org.scala-lang" % "scala-reflect" % Common.SCALA_VERSION,
       "org.slf4j" % "slf4j-api" % Common.SLF4J_VERSION,

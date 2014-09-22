@@ -175,7 +175,6 @@ trait ReflectionHelpers extends Logging {
     */
   def caseClassParamsOf[T: TypeTag](csym: scala.reflect.runtime.universe.Symbol): ListMap[String, TypeTag[_]] = {
     val tpe = csym.asType.toType
-    //    val constructorSymbol = tpe.decl(termNames.CONSTRUCTOR)
     val constructorSymbol = csym.asType.toType.decl(termNames.CONSTRUCTOR)
     val defaultConstructor =
       if (constructorSymbol.isMethod) constructorSymbol.asMethod
@@ -221,10 +220,33 @@ trait ReflectionHelpers extends Logging {
     applySymbol.paramLists.flatten.zipWithIndex.map { case (p, i) => p.name.toString -> valueFor(i) }.toMap
   }
 
+  def defaultCaseClassValues[T: TypeTag](tb: scala.tools.reflect.ToolBox[reflect.runtime.universe.type]): Map[String, Option[Any]] = {
+
+    val companion = CompanionMetadata[T](tb).get
+
+    val applySymbol: MethodSymbol = {
+      val symbol = companion.classType.member(TermName("apply"))
+      if (symbol.isMethod) symbol.asMethod
+      else symbol.asTerm.alternatives.head.asMethod // symbol.isTerm
+    }
+
+    def valueFor(i: Int): Option[Any] = {
+      val defaultValueThunkName = TermName(s"apply$$default$$${i + 1}")
+      val defaultValueThunkSymbol = companion.classType member defaultValueThunkName
+
+      if (defaultValueThunkSymbol == NoSymbol) None
+      else {
+        val defaultValueThunk = companion.instanceMirror reflectMethod defaultValueThunkSymbol.asMethod
+        Some(defaultValueThunk.apply())
+      }
+    }
+
+    applySymbol.paramLists.flatten.zipWithIndex.map { case (p, i) => p.name.toString -> valueFor(i) }.toMap
+  }
+
   def defaultCaseClassValues[T: TypeTag](tb: scala.tools.reflect.ToolBox[reflect.runtime.universe.type], csym: scala.reflect.runtime.universe.Symbol): Map[String, Option[Any]] = {
 
     val companion = CompanionMetadata[T](tb, csym).get
-    //   val companion = CompanionMetadata[T](csym).get
 
     val applySymbol: MethodSymbol = {
       val symbol = companion.classType.member(TermName("apply"))
@@ -291,8 +313,7 @@ trait ReflectionHelpers extends Logging {
     * Returns a ClassTag from the current class loader mirror for the supplied
     * type.
     */
-  def classTagForType(tpe: Type): ClassTag[_] =
-    ClassTag(classLoaderMirror runtimeClass tpe)
+  def classTagForType(tpe: Type): ClassTag[_] = ClassTag(classLoaderMirror runtimeClass tpe)
 
   /**
     * Returns a TypeTag in the current runtime universe for the supplied type.
@@ -370,6 +391,29 @@ trait ReflectionHelpers extends Logging {
         val classType = symbol.moduleClass.asClass.asType.toType
         CompanionMetadata(symbol, instance, instanceMirror, classType)
       }
+
+    }
+
+    def apply[T: TypeTag](tb: scala.tools.reflect.ToolBox[reflect.runtime.universe.type]): Option[CompanionMetadata[T]] = {
+
+      val typeSymbol = typeOf[T].typeSymbol
+
+      val companion: Option[ModuleSymbol] = {
+        if (!typeSymbol.isClass) None // supplied type is not a class
+        else {
+          val classSymbol = typeSymbol.asClass
+          if (!classSymbol.companion.isModule) None // supplied class type has no companion
+          else Some(classSymbol.companion.asModule)
+        }
+      }
+      companion.map { symbol =>
+
+        val loader = (tb.asInstanceOf[scala.tools.reflect.ToolBoxFactory$ToolBoxImpl].classLoader)
+        val instance = runtimeMirror(loader).reflectModule(symbol).instance
+        val instanceMirror = classLoaderMirror reflect instance
+        val classType = symbol.moduleClass.asClass.asType.toType
+        CompanionMetadata(symbol, instance, instanceMirror, classType)
+      }
     }
 
     def apply[T: TypeTag](tb: scala.tools.reflect.ToolBox[reflect.runtime.universe.type], csym: scala.reflect.runtime.universe.Symbol): Option[CompanionMetadata[T]] = {
@@ -387,7 +431,7 @@ trait ReflectionHelpers extends Logging {
       companion.map { symbol =>
 
         val loader = (tb.asInstanceOf[scala.tools.reflect.ToolBoxFactory$ToolBoxImpl].classLoader)
-        val instance = runtimeMirror(loader).reflectModule(symbol).instance //classLoaderMirror.reflectModule(symbol).instance
+        val instance = runtimeMirror(loader).reflectModule(symbol).instance
         val instanceMirror = classLoaderMirror reflect instance
         val classType = symbol.moduleClass.asClass.asType.toType
         CompanionMetadata(symbol, instance, instanceMirror, classType)
@@ -453,6 +497,7 @@ trait ReflectionHelpers extends Logging {
     */
   class ProductElementExtractor[P: TypeTag, T: TypeTag](memberName: String) {
     val memberField = typeOf[P].decl(TermName(memberName)).asTerm.accessed.asTerm
+
     implicit val ct = ClassTag[P](classLoaderMirror runtimeClass typeOf[P])
 
     /**
@@ -462,6 +507,32 @@ trait ReflectionHelpers extends Logging {
       */
     def extractFrom(product: P): T = {
       val instanceMirror = classLoaderMirror reflect product
+      val fieldValue = instanceMirror reflectField memberField
+      fieldValue.get.asInstanceOf[T]
+    }
+  }
+
+  /**
+    * Provides access to named members of instances of the supplied type `P`.
+    *
+    * @tparam P         the type of the product instance in question
+    * @tparam T         the expected type of the member value
+    * @param membername the name of the member value to extract
+    */
+  class ToolBoxProductElementExtractor[P: TypeTag, T: TypeTag](tb: scala.tools.reflect.ToolBox[reflect.runtime.universe.type], memberName: String) {
+
+    val loader = (tb.asInstanceOf[scala.tools.reflect.ToolBoxFactory$ToolBoxImpl].classLoader)
+    val memberField = typeOf[P].decl(TermName(memberName)).asTerm.accessed.asTerm
+    implicit val ct = ClassTag[P](runtimeMirror(loader) runtimeClass typeOf[P])
+
+    /**
+      * Attempts to fetch the value from the supplied product instance.
+      *
+      * @param product    an instance of some product type, P
+      */
+    //def extractFrom(tb: scala.tools.reflect.ToolBoxFactory$ToolBoxImpl, product: P): T = {
+    def extractFrom(tb: scala.tools.reflect.ToolBox[reflect.runtime.universe.type], product: P): T = {
+      val instanceMirror = runtimeMirror(loader) reflect product
       val fieldValue = instanceMirror reflectField memberField
       fieldValue.get.asInstanceOf[T]
     }
@@ -507,4 +578,43 @@ trait ReflectionHelpers extends Logging {
 
   }
 
+  /**
+    * Encapsulates functionality to reflectively invoke the constructor
+    * for a given case class type `T`.
+    *
+    * @tparam T the type of the case class this factory builds
+    */
+  class ToolBoxCaseClassFactory[T: TypeTag](tb: scala.tools.reflect.ToolBox[reflect.runtime.universe.type]) {
+    val loader = (tb.asInstanceOf[scala.tools.reflect.ToolBoxFactory$ToolBoxImpl].classLoader)
+    val tpe = typeOf[T]
+    val classSymbol = tpe.typeSymbol.asClass
+
+    if (!(tpe <:< typeOf[Product] && classSymbol.isCaseClass))
+      throw new IllegalArgumentException(
+        "CaseClassFactory only applies to case classes!"
+      )
+
+    val classMirror = runtimeMirror(loader) reflectClass classSymbol
+
+    val constructorSymbol = tpe.decl(termNames.CONSTRUCTOR)
+
+    val defaultConstructor =
+      if (constructorSymbol.isMethod) constructorSymbol.asMethod
+      else {
+        val ctors = constructorSymbol.asTerm.alternatives
+        ctors.map { _.asMethod }.find { _.isPrimaryConstructor }.get
+      }
+
+    val constructorMethod = classMirror reflectConstructor defaultConstructor
+
+    /**
+      * Attempts to create a new instance of the specified type by calling the
+      * constructor method with the supplied arguments.
+      *
+      * @tparam T   the type of object to construct, which must be a case class
+      * @param args the arguments to supply to the constructor method
+      */
+    def buildWith(args: Seq[_]): T = constructorMethod(args: _*).asInstanceOf[T]
+
+  }
 }

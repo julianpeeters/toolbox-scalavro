@@ -76,21 +76,34 @@ object AvroRecord {
             },
             namespace = Some(prefix.toString stripSuffix ".type")
           ).asInstanceOf[AvroType[T]]
-        /*
-        case x =>
 
-          val defaultValues = ReflectionHelpers.defaultCaseClassValues[T]
+      }
+    }
+    else throw new IllegalArgumentException("""
+      |Could not create an AvroRecord from type [%s]
+      |Product types must be case classes with no type parameters
+    """.format(tt.tpe).stripMargin)
+  }
+
+  private[types] def fromType[T <: Product: TypeTag](tb: scala.tools.reflect.ToolBox[reflect.runtime.universe.type], processedTypes: Set[Type]) = {
+    val tt = typeTag[T]
+
+    val classSymbol = tt.tpe.typeSymbol.asClass
+    if (classSymbol.isCaseClass && classSymbol.typeParams.isEmpty) {
+
+      tt.tpe.map(_.dealias) match {
+        case TypeRef(prefix, symbol, _) =>
+
+          val defaultValues = ReflectionHelpers.defaultCaseClassValues[T](tb)
 
           new AvroRecord[T](
-            //            name = symbol.name.toString,
-            name = "NN",
+            name = symbol.name.toString,
             fields = ReflectionHelpers.caseClassParamsOf[T].toSeq map {
               case (name, tag) => AvroRecord.Field(name, defaultValues(name))(tag.asInstanceOf[TypeTag[Any]])
             },
-            //            namespace = Some(prefix.toString stripSuffix ".type")
-            namespace = Some("MM")
+            namespace = Some(prefix.toString stripSuffix ".type")
           ).asInstanceOf[AvroType[T]]
-*/
+
       }
     }
     else throw new IllegalArgumentException("""

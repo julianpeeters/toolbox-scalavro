@@ -22,7 +22,7 @@ trait AvroStringIO extends AvroNullablePrimitiveTypeIO[String] {
 
   protected[scalavro] def write(
     value: String,
-    encoder: BinaryEncoder): Unit =
+    encoder: BinaryEncoder): Unit = {
     if (value == null) {
       AvroLongIO.write(UNION_INDEX_NULL, encoder)
     }
@@ -30,7 +30,7 @@ trait AvroStringIO extends AvroNullablePrimitiveTypeIO[String] {
       AvroLongIO.write(UNION_INDEX_VALUE, encoder)
       encoder writeString value
     }
-
+  }
   def read(decoder: BinaryDecoder): String =
     AvroLongIO.read(decoder) match {
       case UNION_INDEX_NULL  => null
@@ -41,11 +41,12 @@ trait AvroStringIO extends AvroNullablePrimitiveTypeIO[String] {
   // JSON ENCODING
   ////////////////////////////////////////////////////////////////////////////
 
-  def writePrimitiveJson(value: String) =
+  def writePrimitiveJson(value: String) = {
     if (value == null)
       JsNull
     else
       JsString(value)
+  }
 
   def readJson(json: JsValue): Try[String] = Try {
     json match {

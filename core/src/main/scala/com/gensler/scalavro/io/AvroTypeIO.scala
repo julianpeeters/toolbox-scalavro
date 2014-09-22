@@ -96,6 +96,14 @@ abstract class AvroTypeIO[T: TypeTag] extends Logging {
   def writeJson[G <: T: TypeTag](obj: G): JsValue
 
   /**
+    * Returns a serialized representation of the supplied object according to
+    * the Avro specification for JSON encoding.  Throws an
+    * AvroSerializationException if writing is unsuccessful.
+    */
+  // @throws[AvroSerializationException[_]]
+  // def writeJson[G <: T: TypeTag](tb: scala.tools.reflect.ToolBox[reflect.runtime.universe.type], obj: G): JsValue
+
+  /**
     * Attempts to create an object of type T by reading the required data from
     * the supplied JsValue.
     */
@@ -169,6 +177,7 @@ object AvroTypeIO {
   def avroTypeToIO[T, M <: Map[String, T]](map: AvroMap[T, M]): AvroMapIO[T, M] = AvroMapIO(map)
   def avroTypeToIO[T](error: AvroError[T]): AvroRecordIO[T] = AvroRecordIO(error)
   def avroTypeToIO[T](record: AvroRecord[T]): AvroRecordIO[T] = AvroRecordIO(record)
+  def avroTypeToIO[T](tb: scala.tools.reflect.ToolBox[reflect.runtime.universe.type], record: AvroRecord[T]): ToolBoxAvroRecordIO[T] = ToolBoxAvroRecordIO(tb, record)
   def avroTypeToIO[U <: Union.not[_], T](union: AvroUnion[U, T]): AvroUnionIO[U, T] = AvroUnionIO(union)(union.union.underlyingTag, union.tag)
 
   def avroTypeToIO[T: TypeTag](at: AvroType[T]): AvroTypeIO[T] = {
@@ -183,6 +192,22 @@ object AvroTypeIO {
       case t: AvroMap[_, _]        => avroTypeToIO(t)
       case t: AvroError[_]         => avroTypeToIO(t)
       case t: AvroRecord[_]        => avroTypeToIO(t)
+      case t: AvroUnion[_, _]      => avroTypeToIO(t)
+    }
+  }
+
+  def avroTypeToIO[T: TypeTag](tb: scala.tools.reflect.ToolBox[reflect.runtime.universe.type], at: AvroType[T]): AvroTypeIO[T] = {
+    at match {
+      case t: AvroPrimitiveType[_] => avroTypeToIO(t)
+      case t: AvroArray[_, _]      => avroTypeToIO(t)
+      case t: AvroJArray[_]        => avroTypeToIO(t)
+      case t: AvroSet[_, _]        => avroTypeToIO(t)
+      case t: AvroEnum[_]          => avroTypeToIO(t)
+      case t: AvroJEnum[_]         => avroTypeToIO(t)
+      case t: AvroFixed[_]         => avroTypeToIO(t)
+      case t: AvroMap[_, _]        => avroTypeToIO(t)
+      case t: AvroError[_]         => avroTypeToIO(t)
+      case t: AvroRecord[_]        => avroTypeToIO(tb, t)
       case t: AvroUnion[_, _]      => avroTypeToIO(t)
     }
   }.asInstanceOf[AvroTypeIO[T]]
